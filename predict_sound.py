@@ -72,7 +72,6 @@ class SoundCNN(nn.Module):
     def forward(self, x):
         return self.block_2(self.block_1(x))
 
-
 metadata_file_path = Path("data/environment_sound_dataset/ESC-50/meta/esc50.csv")
 
 metadata_df = pd.read_csv(metadata_file_path)
