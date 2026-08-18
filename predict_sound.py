@@ -8,7 +8,7 @@ from audio_preprocessing import sound_prediction
 
 TARGET_CLASSES = [
     "crying_baby",
-    "door_wood_knock"
+    "door_wood_knock",
     "siren",
     "clock_alarm",
     "glass_breaking",

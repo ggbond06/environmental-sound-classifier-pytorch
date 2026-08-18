@@ -16,9 +16,12 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-from environment_sound_helper_functions import evaluate_model
+from environment_sound_helper_functions import evaluate_model, get_predictions
 
-from sound_model import SoundCNN
+from sound_model import SoundCNNBatchNorm
+
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+import matplotlib.pyplot as plt
 
 device = "mps" if torch.backends.mps.is_available() else "cpu"
 
@@ -142,7 +145,7 @@ training_labels = torch.tensor(training_labels)
 
 torch.manual_seed(42)
 
-model = SoundCNN(input_shape=1, hidden_units=32, output_shape=len(CLASSES)).to(device)
+model = SoundCNNBatchNorm(input_shape=1, hidden_units=32, output_shape=len(CLASSES), dropout=0.4).to(device)
 
 class_counts = torch.bincount(
     training_labels,
@@ -164,21 +167,27 @@ train_evaluation_dataloader = DataLoader(training_evaluation_dataset, batch_size
 validation_dataloader = DataLoader(validation_dataset, batch_size=32, shuffle=False, num_workers=0)
 test_dataloader = DataLoader(testing_dataset, batch_size=32, shuffle=False, num_workers=0)
 
+X, y = next(iter(train_dataloader))
+with torch.inference_mode():
+    output = model(X.to(device))
+
+print(output.shape)
+
 loss_fn = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(params=model.parameters(), lr=0.001)
+optimizer = torch.optim.AdamW(params=model.parameters(), lr=0.001, weight_decay=1e-4)
 
 torch.manual_seed(42)
 
 checkpoint_directory = Path("models")
 checkpoint_directory.mkdir(exist_ok=True)
 
-best_model_path = (checkpoint_directory / "best_soundCNN_time_and_frequency_masking.pt")
+best_model_path = (checkpoint_directory / "best_SoundCNNBatchNorm.pt")
 
 best_balanced_accuracy = -1.0
 history = []
 
-epochs = 0
-patience = 5
+epochs = 40
+patience = 8
 epochs_without_improvement = 0
 
 for epoch in tqdm(range(epochs)):
@@ -293,21 +302,13 @@ model.load_state_dict(
 
 assert checkpoint["classes"] == CLASSES
 
-# best_validation_metrics = evaluate_model(
-#     model=model,
-#     dataloader=validation_dataloader,
-#     loss_fn=loss_fn,
-#     device=device,
-#     num_classes=len(CLASSES),
-# )
-
 test_metrics = evaluate_model(
     model=model,
     dataloader=test_dataloader,
     loss_fn=loss_fn,
     device=device,
-    num_classes=len(CLASSES)
-)
+    num_classes=len(CLASSES),
+) 
 
 print(
     "Loaded best epoch:",
@@ -318,23 +319,6 @@ print(
     "Best balanced accuracy:",
     checkpoint["balanced_accuracy"],
 )
-
-# print(
-#     f"Recalculated validation results - "
-#     f"Loss: {best_validation_metrics['loss']:.4f} - "
-#     f"Accuracy: {best_validation_metrics['accuracy']:.2f}% - "
-#     f"Balanced accuracy: "
-#     f"{best_validation_metrics['balanced_accuracy']:.2f}%"
-# )
-
-# for index, class_name in enumerate(CLASSES):
-#     print(
-#         f"{class_name}: "
-#         f"precision="
-#         f"{best_validation_metrics['precision'][index].item() * 100:.2f}%, "
-#         f"recall="
-#         f"{best_validation_metrics['recall'][index].item() * 100:.2f}%"
-#     )
 
 print(
     f"Test results - "
@@ -352,3 +336,38 @@ for index, class_name in enumerate(CLASSES):
         f"recall="
         f"{test_metrics['recall'][index].item() * 100:.2f}%"
     )
+
+y_pred, y_true = get_predictions(
+    model=model,
+    dataloader=test_dataloader,
+    device=device
+)
+
+cm = confusion_matrix(y_true, y_pred, labels=list(range(len(CLASSES))))
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=CLASSES)
+fig, ax = plt.subplots(figsize=(8, 8))
+disp.plot(ax=ax, xticks_rotation=45, cmap="Blues", colorbar=False)
+plt.tight_layout()
+plt.savefig(checkpoint_directory / "confusion_matrix.png")
+plt.show()
+
+results_df = test_dataloader.dataset.dataframe.copy()
+results_df["true_label"] = [CLASSES[label] for label in y_true]
+results_df["predicted_label"] = [CLASSES[label] for label in y_pred]
+
+assert (
+    results_df["true_label"]
+    == results_df["category"].apply(lambda c: c if c in TARGET_CLASSES else "other")
+).all()
+
+glass_confusions = results_df[
+    (results_df["true_label"] == "other") &
+    (results_df["predicted_label"] == "glass_breaking")
+]
+print(glass_confusions["category"].value_counts())
+
+siren_confusions = results_df[
+    (results_df["true_label"] == "other") &
+    (results_df["predicted_label"] == "siren")
+]
+print(siren_confusions["category"].value_counts())

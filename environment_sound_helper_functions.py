@@ -59,3 +59,19 @@ def evaluate_model(model, dataloader, loss_fn, device, num_classes):
         "recall": recall,
         "precision": precision,
     }
+
+@torch.inference_mode()
+def get_predictions(model, dataloader, device):
+    model.eval()
+    all_preds = []
+    all_labels = []
+
+    for X, y in dataloader:
+        X, y = X.to(device), y.to(device)
+        logits = model(X)
+        preds = torch.argmax(logits, dim=1)
+
+        all_preds.append(preds.cpu())
+        all_labels.append(y.cpu())
+
+    return torch.cat(all_preds).numpy(), torch.cat(all_labels).numpy()
