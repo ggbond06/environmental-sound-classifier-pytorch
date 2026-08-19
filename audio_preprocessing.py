@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import soundfile as sf
 import torchaudio
 
-from sound_model import SoundCNN
+from sound_model import SoundCNNBatchNorm
 
 TARGET_CLASSES = [
     "crying_baby",
@@ -76,7 +76,7 @@ def sound_prediction(audio_file_path):
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
     classes = checkpoint["classes"]
 
-    model = SoundCNN(input_shape=1, hidden_units=32, output_shape=len(classes)).to(device)
+    model = SoundCNNBatchNorm(input_shape=1, hidden_units=32, output_shape=len(classes)).to(device)
 
     model.load_state_dict(checkpoint["model_state_dict"])
 
